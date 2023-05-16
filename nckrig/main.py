@@ -30,12 +30,13 @@ def nckrig():
     parser.add_argument("-v", "--varplot", action='store_true', help="Plot the variogram")
     parser.add_argument("-u", "--universal", action='store_true', help="Use universal kriging")
     parser.add_argument("-n", "--n-threads", type=int, default=1, help="Number of threads")
-    parser.add_argument('-f', '--load-from-file', type=str, action=LoadFromFile, help="Load all the arguments from a text file")
     parser.add_argument('--data-dir', type=str, default='',
                                 help="Directory containing the climate datasets")
     parser.add_argument('--mask-dir', type=str, default='', help="Directory containing the mask datasets")
     parser.add_argument('--output-dir', type=str, default='',
                                 help="Directory where the output files will be stored")
+    parser.add_argument('--output-name', type=str, default=None, help="Prefix used for the output filename")
+    parser.add_argument('-f', '--load-from-file', type=str, action=LoadFromFile, help="Load all the arguments from a text file")
     args = parser.parse_args()
 
     model = args.model
@@ -151,7 +152,10 @@ def nckrig():
         print("* Best nbin: ", onbin)
         print("* Best params: ", optim)
     else:
-        outname = ".".join(args.data_name.split(".")[:-1]) + "_kriged.nc"
+        if args.output_name is None:
+            outname = ".".join(args.data_name.split(".")[:-1]) + "_kriged.nc"
+        else:
+            outname = args.output_name
         ds.to_netcdf(args.output_dir + outname)
 
 if __name__ == "__main__":
