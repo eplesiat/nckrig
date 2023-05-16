@@ -9,21 +9,26 @@ import threading
 import matplotlib
 matplotlib.use("TkAgg")
 
+class LoadFromFile(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.parse_args(open(values).read().split(), namespace)
+
 def nckrig():
     global ds, rmse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("fname", type=str, help="Filename of the netCDF file")
-    parser.add_argument("selvar", type=str, default=None, help="Selected variable")
+    parser.add_argument("-i", "--fname", type=str, default=None, help="Filename of the netCDF file")
+    parser.add_argument("-v", "--selvar", type=str, default=None, help="Selected variable")
     parser.add_argument("--model", type=str, default="gaussian", help="Model for the variogram")
     parser.add_argument("-m", "--mask", type=str, default=None, help="Filename of the mask netCDF file")
     parser.add_argument("-r", "--range", type=float, default=None, help="Range (in %) for parameter search")
     parser.add_argument("-s", "--nsearch", type=int, default=None, help="Number of points for parameter search for parameter search")
     parser.add_argument("-p", "--params", type=str, default=None, help="x0 params")
     parser.add_argument("-b", "--nbins", type=str, default="6", help="Number of bins")
-    parser.add_argument("-v", "--varplot", action='store_true', help="Plot the variogram")
+    parser.add_argument("-g", "--graph", action='store_true', help="Plot the variogram")
     parser.add_argument("-u", "--universal", action='store_true', help="Use universal kriging")
     parser.add_argument("-n", "--n-threads", type=int, default=1, help="Number of threads")
+    parser.add_argument('-f', '--load-from-file', type=str, action=LoadFromFile, help="Load all the arguments from a text file")
     args = parser.parse_args()
 
     model = args.model
@@ -67,7 +72,7 @@ def nckrig():
     print("* Total number of configurations:", ntot)
 
     search = False
-    varplot = args.varplot
+    varplot = args.graph
     if ntot > 1:
         search = True
         varplot = False
