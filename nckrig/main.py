@@ -17,18 +17,25 @@ def nckrig():
     global ds, rmse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--fname", type=str, default=None, help="Filename of the netCDF file")
-    parser.add_argument("-v", "--selvar", type=str, default=None, help="Selected variable")
+    parser.add_argument("-i", '--data-name', type=str, default='train.nc',
+                                help="netCDF file (climate dataset) for training")
+    parser.add_argument("-m", '--mask-name', type=str, default=None,
+                                help="netCDF file (mask dataset). If None, it extracts the masks from the climate dataset")
+    parser.add_argument("-t", '--data-type', type=str, default='tas', help="Variable type")
     parser.add_argument("--model", type=str, default="gaussian", help="Model for the variogram")
-    parser.add_argument("-m", "--mask", type=str, default=None, help="Filename of the mask netCDF file")
     parser.add_argument("-r", "--range", type=float, default=None, help="Range (in %) for parameter search")
     parser.add_argument("-s", "--nsearch", type=int, default=None, help="Number of points for parameter search for parameter search")
     parser.add_argument("-p", "--params", type=str, default=None, help="x0 params")
     parser.add_argument("-b", "--nbins", type=str, default="6", help="Number of bins")
-    parser.add_argument("-g", "--graph", action='store_true', help="Plot the variogram")
+    parser.add_argument("-v", "--varplot", action='store_true', help="Plot the variogram")
     parser.add_argument("-u", "--universal", action='store_true', help="Use universal kriging")
     parser.add_argument("-n", "--n-threads", type=int, default=1, help="Number of threads")
     parser.add_argument('-f', '--load-from-file', type=str, action=LoadFromFile, help="Load all the arguments from a text file")
+    parser.add_argument('--data-dir', type=str, default='',
+                                help="Directory containing the climate datasets")
+    parser.add_argument('--mask-dir', type=str, default='', help="Directory containing the mask datasets")
+    parser.add_argument('--output-dir', type=str, default='',
+                                help="Directory where the output files will be stored")
     args = parser.parse_args()
 
     model = args.model
@@ -38,13 +45,13 @@ def nckrig():
     else:
         kriging = OrdinaryKriging
 
-    ds = xr.open_dataset(args.fname)
+    ds = xr.open_dataset(args.data_dir + args.data_name)
 
-    if args.mask is None:
+    if args.mask_name is None:
         mask = None
     else:
-        mask = (1 - xr.open_dataset(args.mask)[args.selvar].values).astype(bool)
-        assert ds[args.selvar].shape == mask.shape
+        mask = (1 - xr.open_dataset(args.mask_dir + args.mask_name)[args.data_type].values).astype(bool)
+        assert ds[args.data_type].shape == mask.shape
 
     nbins = [int(i) for i in args.nbins.split(",")]
 
@@ -72,7 +79,7 @@ def nckrig():
     print("* Total number of configurations:", ntot)
 
     search = False
-    varplot = args.graph
+    varplot = args.varplot
     if ntot > 1:
         search = True
         varplot = False
@@ -106,10 +113,10 @@ def nckrig():
                              variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
         interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
 
-        rmse[t] = np.sqrt(np.mean((ds[args.selvar][t].values - interp)**2))
+        rmse[t] = np.sqrt(np.mean((ds[args.data_type][t].values - interp)**2))
 
         if not search:
-            ds[args.selvar][t] = np.array(interp)
+            ds[args.data_type][t] = np.array(interp)
             fitted = OUK.variogram_model_parameters
             print("Params:", fitted)
 
@@ -123,7 +130,7 @@ def nckrig():
 
                 threads = []
                 for t in t_chunk:
-                    threads.append(threading.Thread(target=reconstruct, args=(t, args.selvar, grid_lat, grid_lon, mask,
+                    threads.append(threading.Thread(target=reconstruct, args=(t, args.data_type, grid_lat, grid_lon, mask,
                                                                               model, params[c], nbin,
                                                                               varplot, search)))
                     threads[-1].start()
@@ -144,7 +151,8 @@ def nckrig():
         print("* Best nbin: ", onbin)
         print("* Best params: ", optim)
     else:
-        ds.to_netcdf(".".join(args.fname.split(".")[:-1])+"_kriged.nc")
+        outname = ".".join(args.data_name.split(".")[:-1]) + "_kriged.nc"
+        ds.to_netcdf(args.output_dir + outname)
 
 if __name__ == "__main__":
     nckrig()
