@@ -14,7 +14,7 @@ class LoadFromFile(argparse.Action):
         parser.parse_args(open(values).read().split(), namespace)
 
 def nckrig():
-    global ds, rmse
+    global ds, rmse, fitted
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", '--data-name', type=str, default='train.nc',
@@ -72,7 +72,7 @@ def nckrig():
         params = [params]
 
     ntime = len(ds.time)
-    t_chunks = np.array_split(np.arange(ntime), -(ntime // -args.n_threads))
+    t_chunks = np.array_split(np.arange(ntime), args.n_threads)
 
     nconf = len(params)
     ntot = nconf * len(nbins)
@@ -85,7 +85,7 @@ def nckrig():
         search = True
         varplot = False
 
-    pbar = tqdm(total=ntot * len(t_chunks))
+    pbars = [tqdm(total=ntot * len(t_chunk)) for t_chunk in t_chunks]
 
     dims = {}
     for dim in ds.dims:
@@ -99,44 +99,45 @@ def nckrig():
 
     rmin = np.inf
 
-    def reconstruct(t, selvar, grid_lat, grid_lon, mask, model, params, nbin, varplot, search):
-        global ds, rmse
+    def reconstruct(pbar, t_chunk, selvar, grid_lat, grid_lon, mask, model, params, nbin, varplot, search):
+        global ds, rmse, fitted
 
-        vals = ds[selvar].values[t].copy()
-        if mask is not None:
-            vals[mask[t]] = np.nan
-        idx = np.where(~np.isnan(vals))
-        vals = vals[idx]
-        lat = grid_lat[idx[0]]
-        lon = grid_lon[idx[1]]
+        for t in t_chunk:
+            pbar.update()
 
-        OUK = kriging(np.array(lon), np.array(lat), np.array(vals), variogram_model=model, verbose=False,
-                             variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
-        interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
+            vals = ds[selvar].values[t].copy()
+            if mask is not None:
+                vals[mask[t]] = np.nan
+            idx = np.where(~np.isnan(vals))
+            vals = vals[idx]
+            lat = grid_lat[idx[0]]
+            lon = grid_lon[idx[1]]
 
-        rmse[t] = np.sqrt(np.mean((ds[args.data_type][t].values - interp)**2))
+            OUK = kriging(np.array(lon), np.array(lat), np.array(vals), variogram_model=model, verbose=False,
+                                 variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
+            interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
 
-        if not search:
-            ds[args.data_type][t] = np.array(interp)
-            fitted = OUK.variogram_model_parameters
-            print("Params:", fitted)
+            rmse[t] = np.sqrt(np.mean((ds[args.data_type][t].values - interp)**2))
+
+            if not search:
+                ds[args.data_type][t] = np.array(interp)
+                fitted[t] = OUK.variogram_model_parameters
 
     for nbin in nbins:
         for c in range(nconf):
             rmse = [None for i in range(ntime)]
+            fitted = [None for i in range(ntime)]
 
+            threads = []
+            k = 0
             for t_chunk in t_chunks:
+                threads.append(threading.Thread(target=reconstruct, args=(pbars[k], t_chunk, args.data_type, grid_lat, grid_lon,
+                                                                          mask, model, params[c], nbin, varplot, search)))
+                threads[-1].start()
+                k += 1
 
-                pbar.update()
-
-                threads = []
-                for t in t_chunk:
-                    threads.append(threading.Thread(target=reconstruct, args=(t, args.data_type, grid_lat, grid_lon, mask,
-                                                                              model, params[c], nbin,
-                                                                              varplot, search)))
-                    threads[-1].start()
-                for thread in threads:
-                    thread.join()
+            for thread in threads:
+                thread.join()
 
             tot_rmse = sum(rmse)
             print("RMSE:", tot_rmse)
@@ -145,7 +146,10 @@ def nckrig():
                     rmin = tot_rmse
                     optim = params[c]
                     onbin = nbin
-
+            else:
+                print("Params:")
+                for t in range(ntime):
+                    print(t, fitted[t])
 
     if search:
         print("* Best RMSE: ", rmin)
