@@ -72,7 +72,7 @@ def nckrig():
         params = [params]
 
     ntime = len(ds.time)
-    t_chunks = np.array_split(np.arange(ntime), args.n_threads)
+    t_chunks = np.array_split(np.random.permutation(ntime), args.n_threads)
 
     nconf = len(params)
     ntot = nconf * len(nbins)
