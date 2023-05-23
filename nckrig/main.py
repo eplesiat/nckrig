@@ -47,6 +47,7 @@ def nckrig():
         kriging = OrdinaryKriging
 
     ds = xr.open_dataset(args.data_dir + args.data_name)
+    ds[args.data_type + "_var"] = ds[args.data_type ].copy()
 
     if args.mask_name is None:
         mask = None
@@ -73,6 +74,7 @@ def nckrig():
 
     ntime = len(ds.time)
     t_chunks = np.array_split(np.random.permutation(ntime), args.n_threads)
+    print("* Chunks: ", t_chunks)
 
     nconf = len(params)
     ntot = nconf * len(nbins)
@@ -121,6 +123,7 @@ def nckrig():
 
             if not search:
                 ds[args.data_type][t] = np.array(interp)
+                ds[args.data_type + "_var"][t] = np.array(ss1)
                 fitted[t] = OUK.variogram_model_parameters
 
     for nbin in nbins:
