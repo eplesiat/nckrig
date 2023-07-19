@@ -30,6 +30,8 @@ def nckrig():
     parser.add_argument("-v", "--varplot", action='store_true', help="Plot the variogram")
     parser.add_argument("-u", "--universal", action='store_true', help="Use universal kriging")
     parser.add_argument("-n", "--n-threads", type=int, default=1, help="Number of threads")
+    parser.add_argument('--steady-mask', type=str, default=None,help="NetCDF file containing a single mask"
+                                                                     "to be applied to all timesteps.")
     parser.add_argument('--data-dir', type=str, default='',
                                 help="Directory containing the climate datasets")
     parser.add_argument('--mask-dir', type=str, default='', help="Directory containing the mask datasets")
@@ -47,13 +49,19 @@ def nckrig():
         kriging = OrdinaryKriging
 
     ds = xr.open_dataset(args.data_dir + args.data_name)
-    ds[args.data_type + "_var"] = ds[args.data_type ].copy()
+    ds2 = ds.copy()
 
     if args.mask_name is None:
         mask = None
     else:
         mask = (1 - xr.open_dataset(args.mask_dir + args.mask_name)[args.data_type].values).astype(bool)
         assert ds[args.data_type].shape == mask.shape
+
+    if args.steady_mask is None:
+        steady_mask = None
+    else:
+        steady_mask = (1 - xr.open_dataset(args.mask_dir + args.steady_mask)[args.data_type].values).astype(bool).squeeze()
+        assert ds[args.data_type].shape[1:] == steady_mask.shape
 
     nbins = [int(i) for i in args.nbins.split(",")]
 
@@ -101,7 +109,7 @@ def nckrig():
 
     rmin = np.inf
 
-    def reconstruct(pbar, t_chunk, selvar, grid_lat, grid_lon, mask, model, params, nbin, varplot, search):
+    def reconstruct(pbar, t_chunk, selvar, grid_lat, grid_lon, mask, steady_mask, model, params, nbin, varplot, search):
         global ds, rmse, fitted
 
         for t in t_chunk:
@@ -119,11 +127,15 @@ def nckrig():
                                  variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
             interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
 
-            rmse[t] = np.sqrt(np.mean((ds[args.data_type][t].values - interp)**2))
+            if steady_mask is not None:
+                interp[steady_mask] = np.nan
+                ss1[steady_mask] = np.nan
+
+            rmse[t] = np.sqrt(np.nanmean((ds[args.data_type][t].values - interp)**2))
 
             if not search:
                 ds[args.data_type][t] = np.array(interp)
-                ds[args.data_type + "_var"][t] = np.array(ss1)
+                ds2[args.data_type][t] = np.array(ss1)
                 fitted[t] = OUK.variogram_model_parameters
 
     for nbin in nbins:
@@ -135,7 +147,7 @@ def nckrig():
             k = 0
             for t_chunk in t_chunks:
                 threads.append(threading.Thread(target=reconstruct, args=(pbars[k], t_chunk, args.data_type, grid_lat, grid_lon,
-                                                                          mask, model, params[c], nbin, varplot, search)))
+                                                                          mask, steady_mask, model, params[c], nbin, varplot, search)))
                 threads[-1].start()
                 k += 1
 
@@ -160,10 +172,11 @@ def nckrig():
         print("* Best params: ", optim)
     else:
         if args.output_name is None:
-            outname = ".".join(args.data_name.split(".")[:-1]) + "_kriged.nc"
+            outname = ".".join(args.data_name.split(".")[:-1])
         else:
             outname = args.output_name
-        ds.to_netcdf(args.output_dir + outname)
+        ds.to_netcdf(args.output_dir + outname + "_infilled.nc")
+        ds2.to_netcdf(args.output_dir + outname + "_variance.nc")
 
 if __name__ == "__main__":
     nckrig()
