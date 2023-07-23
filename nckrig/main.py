@@ -118,14 +118,21 @@ def nckrig():
             vals = ds[selvar].values[t].copy()
             if mask is not None:
                 vals[mask[t]] = np.nan
+
             idx = np.where(~np.isnan(vals))
             vals = vals[idx]
             lat = grid_lat[idx[0]]
             lon = grid_lon[idx[1]]
 
-            OUK = kriging(np.array(lon), np.array(lat), np.array(vals), variogram_model=model, verbose=False,
-                                 variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
-            interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
+            try:
+                OUK = kriging(np.array(lon), np.array(lat), np.array(vals), variogram_model=model, verbose=False,
+                                    variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
+                interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
+
+            except:
+                print("Warning! Could not reconstruct data for t = ", t)
+                interp = np.ones_like(ds[args.data_type][t].values) * np.nanmean(vals)
+                ss1 = np.zeros_like(interp)
 
             if steady_mask is not None:
                 interp[steady_mask] = np.nan
@@ -140,8 +147,8 @@ def nckrig():
 
     for nbin in nbins:
         for c in range(nconf):
-            rmse = [None for i in range(ntime)]
-            fitted = [None for i in range(ntime)]
+            rmse = [np.nan for i in range(ntime)]
+            fitted = [np.nan for i in range(ntime)]
 
             threads = []
             k = 0
@@ -154,17 +161,17 @@ def nckrig():
             for thread in threads:
                 thread.join()
 
-            tot_rmse = sum(rmse)
+            tot_rmse = np.nanmean(rmse)
             print("RMSE:", tot_rmse)
             if search:
                 if tot_rmse < rmin:
                     rmin = tot_rmse
                     optim = params[c]
                     onbin = nbin
-            else:
-                print("Params:")
-                for t in range(ntime):
-                    print(t, fitted[t])
+            # else:
+            #     print("Params:")
+            #     for t in range(ntime):
+            #         print(t, fitted[t])
 
     if search:
         print("* Best RMSE: ", rmin)
