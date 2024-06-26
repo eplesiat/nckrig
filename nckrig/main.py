@@ -5,7 +5,6 @@ import numpy as np
 from tqdm import tqdm
 from pykrige.ok import OrdinaryKriging
 from pykrige.uk import UniversalKriging
-import threading
 import matplotlib
 matplotlib.use("TkAgg")
 
@@ -30,8 +29,9 @@ def nckrig():
     parser.add_argument("-v", "--varplot", action='store_true', help="Plot the variogram")
     parser.add_argument("-u", "--universal", action='store_true', help="Use universal kriging")
     parser.add_argument("-w", "--n-points", type=int, default=None, help="Number of nearby points to use with a moving window")
-    parser.add_argument("-k", "--backend", type=str, default="vectorized", help="Backend for the execute")
-    parser.add_argument("-n", "--n-threads", type=int, default=1, help="Number of threads")
+    parser.add_argument("-n", "--backend", type=str, default="vectorized", help="Backend for the execute")
+    parser.add_argument("--n-threads", type=int, default=1, help="Number of threads")
+    parser.add_argument("--n-procs", type=int, default=1, help="Number of procs")
     parser.add_argument('--steady-mask', type=str, default=None,help="NetCDF file containing a single mask"
                                                                      "to be applied to all timesteps.")
     parser.add_argument('--data-dir', type=str, default='',
@@ -44,6 +44,13 @@ def nckrig():
     args = parser.parse_args()
 
     model = args.model
+
+    if args.n_procs != 1:
+        from multiprocessing import Process as multi_task
+        n_tasks = args.n_procs
+    else:
+        from threading import Thread as multi_task
+        n_tasks = args.n_threads
 
     if args.universal:
         kriging = UniversalKriging
@@ -83,7 +90,7 @@ def nckrig():
         params = [params]
 
     ntime = len(ds.time)
-    t_chunks = np.array_split(np.random.permutation(ntime), args.n_threads)
+    t_chunks = np.array_split(np.random.permutation(ntime), n_tasks)
     print("* Chunks: ", t_chunks)
 
     nconf = len(params)
@@ -129,7 +136,10 @@ def nckrig():
             try:
                 OUK = kriging(np.array(lon), np.array(lat), np.array(vals), variogram_model=model, verbose=False,
                                     variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
-                interp, ss1 = OUK.execute('grid', grid_lon, grid_lat, backend=backend, n_closest_points=n_points)
+                if steady_mask is None:
+                    interp, ss1 = OUK.execute('grid', grid_lon, grid_lat, backend=backend, n_closest_points=n_points)
+                else:
+                    interp, ss1 = OUK.execute('masked', grid_lon, grid_lat, mask=steady_mask, backend=backend, n_closest_points=n_points)
 
             except:
                 print("Warning! Could not reconstruct data for t = ", t)
@@ -152,17 +162,17 @@ def nckrig():
             rmse = [np.nan for i in range(ntime)]
             fitted = [np.nan for i in range(ntime)]
 
-            threads = []
+            tasks = []
             k = 0
             for t_chunk in t_chunks:
-                threads.append(threading.Thread(target=reconstruct, args=(pbars[k], t_chunk, args.data_type, grid_lat, grid_lon,
+                tasks.append(multi_task(target=reconstruct, args=(pbars[k], t_chunk, args.data_type, grid_lat, grid_lon,
                                                                           mask, steady_mask, model, params[c], nbin,
                                                                           args.backend, args.n_points, varplot, search)))
-                threads[-1].start()
+                tasks[-1].start()
                 k += 1
 
-            for thread in threads:
-                thread.join()
+            for task in tasks:
+                task.join()
 
             tot_rmse = np.nanmean(rmse)
             print("RMSE:", tot_rmse)
