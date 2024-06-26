@@ -29,6 +29,8 @@ def nckrig():
     parser.add_argument("-b", "--nbins", type=str, default="6", help="Number of bins")
     parser.add_argument("-v", "--varplot", action='store_true', help="Plot the variogram")
     parser.add_argument("-u", "--universal", action='store_true', help="Use universal kriging")
+    parser.add_argument("-w", "--n-points", type=int, default=None, help="Number of nearby points to use with a moving window")
+    parser.add_argument("-k", "--backend", type=str, default="vectorized", help="Backend for the execute")
     parser.add_argument("-n", "--n-threads", type=int, default=1, help="Number of threads")
     parser.add_argument('--steady-mask', type=str, default=None,help="NetCDF file containing a single mask"
                                                                      "to be applied to all timesteps.")
@@ -109,7 +111,7 @@ def nckrig():
 
     rmin = np.inf
 
-    def reconstruct(pbar, t_chunk, selvar, grid_lat, grid_lon, mask, steady_mask, model, params, nbin, varplot, search):
+    def reconstruct(pbar, t_chunk, selvar, grid_lat, grid_lon, mask, steady_mask, model, params, nbin, backend, n_points, varplot, search):
         global ds, rmse, fitted
 
         for t in t_chunk:
@@ -127,7 +129,7 @@ def nckrig():
             try:
                 OUK = kriging(np.array(lon), np.array(lat), np.array(vals), variogram_model=model, verbose=False,
                                     variogram_parameters=params, nlags=nbin, enable_plotting=varplot)
-                interp, ss1 = OUK.execute('grid', grid_lon, grid_lat)
+                interp, ss1 = OUK.execute('grid', grid_lon, grid_lat, backend=backend, n_closest_points=n_points)
 
             except:
                 print("Warning! Could not reconstruct data for t = ", t)
@@ -154,7 +156,8 @@ def nckrig():
             k = 0
             for t_chunk in t_chunks:
                 threads.append(threading.Thread(target=reconstruct, args=(pbars[k], t_chunk, args.data_type, grid_lat, grid_lon,
-                                                                          mask, steady_mask, model, params[c], nbin, varplot, search)))
+                                                                          mask, steady_mask, model, params[c], nbin,
+                                                                          args.backend, args.n_points, varplot, search)))
                 threads[-1].start()
                 k += 1
 
